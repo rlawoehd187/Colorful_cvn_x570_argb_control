@@ -1,0 +1,10 @@
+[Unit]
+Description=Colour requests for the GPU LED writer
+
+[Socket]
+ListenDatagram=/run/colorful-gpu-led.sock
+SocketUser=@USER@
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

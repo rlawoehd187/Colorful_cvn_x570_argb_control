@@ -1,0 +1,21 @@
+[Unit]
+Description=GPU LED writer for Colorful RGB
+Requires=colorful-gpu-led.socket
+After=colorful-gpu-led.socket
+
+[Service]
+ExecStart=/usr/local/bin/colorful-gpu-ledd
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+DevicePolicy=closed
+DeviceAllow=char-i2c rw
+ProtectKernelModules=yes
+RestrictAddressFamilies=AF_UNIX
+MemoryDenyWriteExecute=yes
+LockPersonality=yes

@@ -1,0 +1,10 @@
+[Unit]
+Description=Colorful X570M RGB effects
+
+[Service]
+ExecStart=%h/.local/bin/colorful-rgbd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

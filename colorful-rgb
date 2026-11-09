@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Set the RGB LEDs on a Colorful CVN X570M GAMING FROZEN from Linux.
+
+The board's controller is a USB HID device (2f4c:1000, usage page 0xff01).
+One colour update is 10 data reports followed by a commit report, each 65
+bytes including the leading report ID:
+
+    data:   00 01 00 88 <page 0-9> <20 LEDs x 3 colour bytes>
+    commit: 00 01 00 88 ff <zero padding>
+"""
+import argparse
+import glob
+import os
+import sys
+import time
+
+VENDOR_ID = 0x2F4C
+PRODUCT_ID = 0x1000
+USAGE_PAGE_PREFIX = bytes.fromhex("0601ff")  # HID: Usage Page 0xFF01
+
+REPORT_SIZE = 65
+HEADER = bytes.fromhex("00010088")
+PAGES = 10
+LEDS_PER_PAGE = 20
+MAX_LEDS = PAGES * LEDS_PER_PAGE
+COMMIT_PAGE = 0xFF
+
+NAMED_COLORS = {
+    "off": "000000",
+    "white": "ffffff",
+    "red": "ff0000",
+    "green": "00ff00",
+    "blue": "0000ff",
+    "cyan": "00ffff",
+    "magenta": "ff00ff",
+    "yellow": "ffff00",
+}
+
+
+def parse_color(text):
+    value = NAMED_COLORS.get(text.lower(), text.removeprefix("#"))
+    try:
+        if len(value) != 6:
+            raise ValueError
+        return tuple(bytes.fromhex(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"'{text}' is not RRGGBB or one of: {', '.join(NAMED_COLORS)}"
+        ) from None
+
+
+def build_reports(color, order, brightness, led_count):
+    """Return the full list of reports for one solid-colour update."""
+    scaled = {
+        channel: value * brightness // 100
+        for channel, value in zip("rgb", color)
+    }
+    lit = bytes(scaled[channel] for channel in order)
+    pixels = lit * led_count + bytes(3 * (MAX_LEDS - led_count))
+
+    reports = []
+    for page in range(PAGES):
+        start = page * LEDS_PER_PAGE * 3
+        reports.append(HEADER + bytes([page]) + pixels[start:start + LEDS_PER_PAGE * 3])
+    reports.append((HEADER + bytes([COMMIT_PAGE])).ljust(REPORT_SIZE, b"\0"))
+    return reports
+
+
+def find_device():
+    """Return the /dev/hidrawN node of the controller's 0xff01 interface."""
+    for hid in glob.glob("/sys/bus/hid/devices/*"):
+        name = os.path.basename(hid).upper()
+        if f":{VENDOR_ID:04X}:{PRODUCT_ID:04X}." not in name:
+            continue
+        with open(os.path.join(hid, "report_descriptor"), "rb") as f:
+            if not f.read().startswith(USAGE_PAGE_PREFIX):
+                continue
+        nodes = os.listdir(os.path.join(hid, "hidraw"))
+        if nodes:
+            return "/dev/" + nodes[0]
+    return None
+
+
+def wait_for_device(timeout):
+    deadline = time.monotonic() + timeout
+    while True:
+        path = find_device()
+        if path or time.monotonic() >= deadline:
+            return path
+        time.sleep(0.5)
+
+
+def send(path, reports):
+    fd = os.open(path, os.O_WRONLY)
+    try:
+        for report in reports:
+            os.write(fd, report)
+    finally:
+        os.close(fd)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Set a solid LED colour on a Colorful X570M GAMING FROZEN."
+    )
+    parser.add_argument("color", type=parse_color, help="RRGGBB or a colour name, e.g. ff0080, red, off")
+    parser.add_argument("--brightness", type=int, default=100, choices=range(0, 101),
+                        metavar="0-100", help="brightness percent (default: 100)")
+    parser.add_argument("--order", default="rgb", choices=["rgb", "rbg", "grb", "gbr", "brg", "bgr"],
+                        help="colour byte order sent to the LEDs (default: rgb)")
+    parser.add_argument("--leds", type=int, default=MAX_LEDS, choices=range(1, MAX_LEDS + 1),
+                        metavar=f"1-{MAX_LEDS}", help=f"number of LEDs to light (default: {MAX_LEDS})")
+    parser.add_argument("--wait", type=float, default=0, metavar="SEC",
+                        help="wait up to SEC seconds for the device to appear")
+    parser.add_argument("--hold", type=float, metavar="SEC",
+                        help="keep resending every SEC seconds, for controllers that time out")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print the reports instead of sending them")
+    args = parser.parse_args()
+
+    reports = build_reports(args.color, args.order, args.brightness, args.leds)
+    path = wait_for_device(args.wait)
+
+    if args.dry_run:
+        print(f"device: {path or 'not found'}")
+        for report in reports:
+            print(report.hex(" "))
+        return 0
+
+    if not path:
+        print(f"error: {VENDOR_ID:04x}:{PRODUCT_ID:04x} control interface not found", file=sys.stderr)
+        return 1
+
+    try:
+        send(path, reports)
+        while args.hold:
+            time.sleep(args.hold)
+            send(path, reports)
+    except PermissionError:
+        print(f"error: no write access to {path}; run with sudo or install the udev rule", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

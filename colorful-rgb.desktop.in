@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Colorful RGB
+Comment=메인보드 RGB 설정
+Exec=@BINDIR@/colorful-rgb-gui
+Icon=preferences-color
+Categories=Settings;HardwareSettings;
+Terminal=false

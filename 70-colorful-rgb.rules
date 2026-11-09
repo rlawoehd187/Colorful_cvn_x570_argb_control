@@ -1,0 +1,3 @@
+# Let the logged-in user write to the LED control interface only.
+# Must sort before 73-seat-late.rules, which applies the uaccess tag.
+SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_VENDOR_ID}=="2f4c", ENV{ID_MODEL_ID}=="1000", ENV{ID_USB_INTERFACE_NUM}=="02", TAG+="uaccess"
